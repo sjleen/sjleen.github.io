@@ -36,7 +36,6 @@
   body { margin: 0; background: var(--paper); color: var(--ink);
     font: 17px/1.7 var(--serif); -webkit-font-smoothing: antialiased; }
   a { color: var(--signal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-  a:hover { text-decoration-thickness: 2px; }
   :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
 
   /* content column 992px wide with 24px minimum gutters; the menu bar alone spans the full width */
@@ -53,7 +52,6 @@
   section { scroll-margin-top: calc(var(--nav-h) - 1px); }
   nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 22px; flex-wrap: wrap; }
   nav ul a { color: var(--muted); text-decoration: none; }
-  nav ul a:hover { color: var(--ink); }
   @media (max-width: 380px) { nav ul { gap: 14px; } nav { font-size: 14px; } }
 
   /* hero */
@@ -90,7 +88,6 @@
   .year li { margin-bottom: 18px; }
   .year li:last-child { margin-bottom: 0; }
   .pt { display: block; color: var(--ink); text-decoration: none; }
-  a.pt:hover { color: var(--signal); text-decoration: underline; }
   /* touch screens have no hover, so keep a faint underline to show titles are links */
   @media (hover: none) {
     a.pt { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
@@ -114,7 +111,13 @@
   .hl h3 { font-size: 20px; font-weight: 600; line-height: 1.35; margin: 0 0 10px; }
   .refs { font: 14px/1.7 var(--sans); }
   .refs a { color: var(--muted); }
-  .refs a:hover { color: var(--signal); }
+  /* hover styles only where a real pointer exists; iOS otherwise keeps them after a tap */
+  @media (hover: hover) {
+    a:hover { text-decoration-thickness: 2px; }
+    nav ul a:hover { color: var(--ink); }
+    a.pt:hover { color: var(--signal); text-decoration: underline; }
+    .refs a:hover { color: var(--signal); }
+  }
   address { font-style: normal; }
   #contact .links { margin-top: 1em; }
   footer { font: 13px var(--sans); color: var(--muted); padding: 32px 0 56px; border-top: 1px solid var(--rule); }
