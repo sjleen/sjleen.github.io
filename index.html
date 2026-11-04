@@ -339,5 +339,19 @@
 
   <footer>Updated November 2026</footer>
 </div>
+<script>
+  // Always start at the top on reload, and keep "#section" out of the address bar.
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  window.addEventListener('load', function () { window.scrollTo(0, 0); });
+  document.querySelectorAll('nav a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var target = document.querySelector(a.getAttribute('href'));
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView(); // honors scroll-margin-top and the CSS smooth-scroll setting
+    });
+  });
+</script>
 </body>
 </html>
