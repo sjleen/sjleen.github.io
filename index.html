@@ -127,6 +127,9 @@
     .hero { padding-top: 40px; padding-bottom: 40px; grid-template-columns: 1fr; gap: 28px; }
     .portrait { width: 160px; grid-row: 1; }
     section { grid-template-columns: 1fr; padding: 40px 0; }
+    /* pin each section title under the menu while reading that section */
+    section > h2 { position: sticky; top: var(--nav-h); z-index: 5; background: var(--paper);
+      margin: 0 0 8px; padding: 8px 0; }
     .intro { grid-template-columns: 1fr; }
     .themes { margin-top: 8px; }
     .themes ul li { display: inline; }
