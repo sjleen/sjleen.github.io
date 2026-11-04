@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seungjoon Lee</title>
+<meta name="description" content="Seungjoon Lee, Ph.D., postdoctoral fellow at the Salk Institute studying neuroestrogen circuits, sex differences in social behavior, and autism.">
+<meta property="og:type" content="profile">
+<meta property="og:title" content="Seungjoon Lee">
+<meta property="og:description" content="Postdoctoral Fellow at the Salk Institute studying neuroestrogen circuits, sex differences in social behavior, and autism.">
+<meta property="og:url" content="https://sjleen.github.io/">
+<meta property="og:image" content="https://sjleen.github.io/photo.jpg">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F5F6F8; --ink: #16202A; --muted: #5C6773; --rule: #DDE1E6;
+    --signal: #0B7A83;
+    --serif: "Literata", Georgia, serif;
+    --label-col: 104px; --label-gap: 24px; --nav-h: 54px;
+    --sans: "Public Sans", -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #14191F; --ink: #E6E9ED; --muted: #98A2AD; --rule: #2A323B;
+      --signal: #4FC3C9; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font: 17px/1.7 var(--serif); -webkit-font-smoothing: antialiased; }
+  a { color: var(--signal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
+
+  .page { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* section menu: sits between the intro and the details, under a heavier rule */
+  /* fixed height (borders included) so the jump offset matches whatever font loads */
+  nav { height: var(--nav-h); display: flex; align-items: center;
+    border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule);
+    font: 15px/1 var(--sans); position: sticky; top: 0; z-index: 10; background: var(--paper); }
+  /* keep jumped-to headings clear of the pinned menu */
+  /* 1px short so sub-pixel layout never leaves a gap above the pinned menu */
+  section { scroll-margin-top: calc(var(--nav-h) - 1px); }
+  nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 22px; flex-wrap: wrap; }
+  nav ul a { color: var(--muted); text-decoration: none; }
+  nav ul a:hover { color: var(--ink); }
+  @media (max-width: 380px) { nav ul { gap: 14px; } nav { font-size: 14px; } }
+
+  /* hero */
+  .hero { padding: 64px 0 56px; display: grid; grid-template-columns: minmax(0, 44em) minmax(0, 1fr);
+    gap: 48px; align-items: end; }
+  .portrait { width: 100%; height: auto; display: block; border-radius: 4px; }
+  .hero .links, #contact .links { font: 15px/1.5 var(--sans); margin: 18px 0 0; display: flex; gap: 20px; flex-wrap: wrap; }
+  .hero h1 { font-weight: 400; font-size: clamp(36px, 5.5vw, 60px); line-height: 1.02;
+    letter-spacing: -0.02em; margin: 0; }
+  .hero .where { font: 15px/1.5 var(--sans); color: var(--muted); margin: 18px 0 0; }
+
+  /* sections: heading in a left gutter on wide screens */
+  section { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 0 48px;
+    padding: 56px 0; border-top: 1px solid var(--rule); }
+  section > h2 { font: 600 15px/1.7 var(--sans); margin: 4px 0 16px; }
+  section > .body { max-width: 40em; }
+  .intro { grid-template-columns: minmax(0, 44em) minmax(0, 1fr); }
+  .intro > .body { grid-column: 1; }
+  .themes h2 { font: 600 15px/1.7 var(--sans); margin: 4px 0 8px; }
+  .themes ul { list-style: none; margin: 0; padding: 0; font: 15px/1.9 var(--sans); color: var(--muted); }
+  .body p { margin: 0 0 1em; }
+
+
+  /* one label column (dates, years, categories) shared by every list */
+  dl.cv { margin: 0; display: grid; grid-template-columns: var(--label-col) 1fr; gap: 8px var(--label-gap); }
+  dl.cv dt, .year > h3 { font: 400 15px/28.9px var(--sans); color: var(--muted); margin: 0; }
+  dl.cv dd { margin: 0; }
+
+  /* publications grouped by year */
+  .year { display: grid; grid-template-columns: var(--label-col) 1fr; gap: 0 var(--label-gap); padding: 14px 0;
+    border-top: 1px solid var(--rule); }
+  .year:first-child { border-top: 0; padding-top: 0; }
+  .year ul { list-style: none; margin: 0; padding: 0; }
+  .year li { margin-bottom: 18px; }
+  .year li:last-child { margin-bottom: 0; }
+  .pt { display: block; }
+  .pa, .pj { display: block; font: 14px/1.55 var(--sans); color: var(--muted); }
+  .pj i { font-style: italic; }
+  .me { color: var(--ink); font-weight: 600; }
+
+  .td { display: block; color: var(--muted); font-size: 16px; }
+
+  nav + section { border-top: 0; }
+  ul.sw { list-style: none; margin: 0; padding: 0; }
+  ul.sw li { margin-bottom: 6px; }
+  ul.sw .swn { margin-right: 12px; }
+  .swd { color: var(--muted); }
+  .swi { margin-bottom: 20px; }
+  .swi .swd { margin: 4px 0 0; }
+  .tools-note { color: var(--muted); }
+  .hl { margin-bottom: 32px; }
+  .hl h3 { font-size: 20px; font-weight: 600; line-height: 1.35; margin: 0 0 10px; }
+  .refs { font: 14px/1.7 var(--sans); }
+  .refs a { color: var(--muted); }
+  .refs a:hover { color: var(--signal); }
+  address { font-style: normal; }
+  #contact .links { margin-top: 1em; }
+  footer { font: 13px var(--sans); color: var(--muted); padding: 32px 0 56px; border-top: 1px solid var(--rule); }
+
+  @media (max-width: 760px) {
+    body { font-size: 16px; }
+    .hero { padding-top: 40px; padding-bottom: 40px; grid-template-columns: 1fr; gap: 28px; }
+    .portrait { width: 160px; grid-row: 1; }
+    section { grid-template-columns: 1fr; padding: 40px 0; }
+    .intro { grid-template-columns: 1fr; }
+    .themes { margin-top: 8px; }
+    .themes ul li { display: inline; }
+    .themes ul li + li::before { content: ", "; }
+    .year { grid-template-columns: 1fr; }
+    .year > h3 { margin-bottom: 8px; }
+    dl.cv { grid-template-columns: 1fr; gap: 0; }
+    dl.cv dd { margin-bottom: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <main id="top">
+    <header class="hero">
+      <div class="hero-text">
+        <h1>Seungjoon Lee</h1>
+        <p class="where">Postdoctoral Fellow, Bayless Laboratory, Salk Institute for Biological Studies</p>
+        <p class="links"><a href="mailto:sjlee@salk.edu">sjlee@salk.edu</a><a href="https://scholar.google.com/citations?user=JoHZSNwAAAAJ">Google Scholar</a><a href="https://github.com/sjleen">GitHub</a></p>
+      </div>
+      <img class="portrait" src="photo.jpg" width="640" height="640" alt="Portrait of Seungjoon Lee">
+    </header>
+
+    <section id="about" class="intro">
+      <div class="body">
+        <p>Despite decades of research on autism, we still know little about how social behavior breaks down, and even less about how it normally works. My goal is to enhance our understanding of the basic principles of social behavior, including why it differs between males and females, and to use this knowledge to contribute to research on the causes and treatment of disorders with social deficits.</p>
+        <p>During my Ph.D. at the Korea Advanced Institute of Science and Technology (KAIST), I studied the synaptic and circuit mechanisms behind social deficits in Shank2-mutant mice, a model of autism. I focused on parvalbumin (PV) interneurons and on how their excitatory synapses and electrical synapses, formed by neuronal gap junctions, work together.</p>
+        <p>Now at the Salk Institute, I study aromatase-expressing neurons, the cells that make estrogen in the brain. I examine how neuroestrogen levels change during social interaction and how these circuits shape sex differences in social behavior and brain development. I combine mouse genetics with fiber photometry, viral circuit tools, and spatial transcriptomics.</p>
+      </div>
+
+      <aside class="themes" aria-label="Keywords">
+        <h2>Keywords</h2>
+        <ul><li>Social behavior</li><li>Sex differences</li><li>Neuroestrogen</li><li>Aromatase neurons</li><li>Brain development</li><li>Autism</li><li>Parvalbumin interneurons</li><li>Electrical synapses</li></ul>
+      </aside>
+    </section>
+
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#highlights">Research</a></li>
+        <li><a href="#publications">Publications</a></li>
+        <li><a href="#skills">Skills</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+
+    <section id="highlights">
+      <h2>Research highlights</h2>
+      <div class="body">
+        <article class="hl">
+          <h3>Social cognition needs both chemical and electrical synapses in PV interneurons</h3>
+          <p>In Shank2-mutant mice, a model of autism, I asked which cells and synaptic mechanisms drive the behavioral changes. Deleting Shank2 only in parvalbumin (PV) interneurons caused hyperactivity and enhanced self-grooming, while social interaction stayed normal and seizure susceptibility decreased. In the cortex, NMDA receptors and neuronal gap junctions in PV interneurons work together to produce the high-frequency burst firing that supports social cognition. This cooperation is weakened in Shank2-mutant mice, and boosting PV neuron bursts with optogenetics restored cortical social cognition.</p>
+          <p class="refs"><a href="https://doi.org/10.3389/fnmol.2018.00209">Lee S*, Lee E*, et al., <i>Frontiers in Molecular Neuroscience</i> 2018</a><br><a href="https://doi.org/10.1038/s41467-021-25356-2">Lee E*, Lee S*, et al., <i>Nature Communications</i> 2021</a></p>
+        </article>
+        <article class="hl">
+          <h3>Gene dosage reshapes autism-related phenotypes and their sex differences</h3>
+          <p>The effects of an autism-linked gene can depend on how many copies are lost and on the age and sex of the animal. In the prefrontal cortex of Shank2-mutant mice, losing one copy or both copies shifted gene expression in opposite directions in juveniles, while adults of both genotypes showed autism-like changes. In Chd8-mutant mice, a homozygous mutation produced stronger autism-related phenotypes than a heterozygous one and reduced the sex differences seen in heterozygous mice.</p>
+          <p class="refs"><a href="https://doi.org/10.1038/s41380-026-03646-9">Kim J*, Lee S*, Hwang E*, et al., <i>Molecular Psychiatry</i> 2026</a><br><a href="https://doi.org/10.3389/fnmol.2021.683196">Lee S*, et al., <i>Frontiers in Molecular Neuroscience</i> 2021</a></p>
+        </article>
+      </div>
+    </section>
+
+    <section id="cv">
+      <h2>Training</h2>
+      <div class="body">
+        <dl class="cv">
+          <dt>2024 - now</dt><dd>Postdoctoral Fellow, Salk Institute for Biological Studies, mentored by Daniel Bayless, Ph.D.</dd>
+          <dt>2022 - 2024</dt><dd>Postdoctoral Researcher, Life Science Research Institute, KAIST, mentored by Taeyun Ku, M.D., Ph.D.</dd>
+          <dt>2022</dt><dd>Postdoctoral Researcher, Center for Synaptic Brain Dysfunctions, Institute for Basic Science, Korea, mentored by Eunjoon Kim, Ph.D.</dd>
+          <dt>2016 - 2022</dt><dd>Ph.D. in Biological Sciences, KAIST, advised by Eunjoon Kim, Ph.D.<br><span class="td">Thesis titled <i>Study on mechanisms underlying impaired sociability of a mouse model of autism spectrum disorders with Shank2 deletion</i></span></dd>
+          <dt>2011 - 2015</dt><dd>B.S. in Biological Sciences, KAIST</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="publications">
+      <h2>Publications</h2>
+      <div class="body">
+        <div class="year">
+          <h3>2026</h3>
+          <ul>
+            <li><span class="pt">Homozygous CHD8 mutation intensifies ASD phenotypes and attenuates sex differences.</span> <span class="pa">Kim J*, <span class="me">Lee S</span>*, Hwang E*, et al., Lee E, Kim E.</span> <span class="pj"><i>Molecular Psychiatry</i> (2026) 31, 5629-5645. <a href="https://doi.org/10.1038/s41380-026-03646-9">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2024</h3>
+          <ul>
+            <li><span class="pt">Loss of Katnal2 leads to ependymal ciliary hyperfunction and autism-related phenotypes in mice.</span> <span class="pa">Kang R*, Kim K*, Jung Y*, et al., <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>PLoS Biology</i> (2024) 22, e3002596. <a href="https://doi.org/10.1371/journal.pbio.3002596">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2023</h3>
+          <ul>
+            <li><span class="pt">Kv7/KCNQ potassium channels in cortical hyperexcitability and juvenile seizure-related death in Ank2-mutant mice.</span> <span class="pa">Oh H*, Lee S, Oh Y, et al., <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>Nature Communications</i> (2023) 14, 3547. <a href="https://doi.org/10.1038/s41467-023-39203-z">doi</a></span></li>
+            <li><span class="pt">CYFIP2 p.Arg87Cys causes neurological defects and degradation of CYFIP2.</span> <span class="pa">Kang M*, Zhang Y*, Kang HR*, et al., <span class="me">Lee S</span>, et al., Kim E, Han K.</span> <span class="pj"><i>Annals of Neurology</i> (2023) 93, 155-163. <a href="https://doi.org/10.1002/ana.26535">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2022</h3>
+          <ul>
+            <li><span class="pt">Suppressed prefrontal neuronal firing variability and impaired social representation in IRSp53-mutant mice.</span> <span class="pa">Kim W*, Shin JJ, Jeong YJ, et al., <span class="me">Lee S</span>, et al., Lee E, Kim E.</span> <span class="pj"><i>eLife</i> (2022) 11, e74998. <a href="https://doi.org/10.7554/eLife.74998">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2021</h3>
+          <ul>
+            <li><span class="pt">Excitatory synapses and gap junctions cooperate to improve Pv neuronal burst firing and cortical social cognition in Shank2-mutant mice.</span> <span class="pa">Lee E*, <span class="me">Lee S</span>*, Shin JJ*, Choi W*, et al., Kim E.</span> <span class="pj"><i>Nature Communications</i> (2021) 12, 5116. <a href="https://doi.org/10.1038/s41467-021-25356-2">doi</a></span></li>
+            <li><span class="pt">Early chronic memantine treatment-induced transcriptomic changes in wild-type and Shank2-mutant mice.</span> <span class="pa">Yoo YE*, <span class="me">Lee S</span>, Kim W, et al., Kim E.</span> <span class="pj"><i>Frontiers in Molecular Neuroscience</i> (2021) 14, 712576. <a href="https://doi.org/10.3389/fnmol.2021.712576">doi</a></span></li>
+            <li><span class="pt">Gene dosage- and age-dependent differential transcriptomic changes in the prefrontal cortex of Shank2-mutant mice.</span> <span class="pa"><span class="me">Lee S</span>*, Kang H, Jung H, Kim E, Lee E.</span> <span class="pj"><i>Frontiers in Molecular Neuroscience</i> (2021) 14, 683196. <a href="https://doi.org/10.3389/fnmol.2021.683196">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2019</h3>
+          <ul>
+            <li><span class="pt">Shank3 mice carrying the human Q321R mutation display enhanced self-grooming, abnormal electroencephalogram patterns, and suppressed neuronal excitability and seizure susceptibility.</span> <span class="pa">Yoo YE*, Yoo T*, <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>Frontiers in Molecular Neuroscience</i> (2019) 12, 155. <a href="https://doi.org/10.3389/fnmol.2019.00155">doi</a></span></li>
+            <li><span class="pt">Early correction of N-methyl-D-aspartate receptor function improves autistic-like social behaviors in adult Shank2<sup>-/-</sup> mice.</span> <span class="pa">Chung C*, Ha S*, Kang H, et al., <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>Biological Psychiatry</i> (2019) 85, 534-543. <a href="https://doi.org/10.1016/j.biopsych.2018.09.025">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2018</h3>
+          <ul>
+            <li><span class="pt">Shank2 deletion in parvalbumin neurons leads to moderate hyperactivity, enhanced self-grooming and suppressed seizure susceptibility in mice.</span> <span class="pa"><span class="me">Lee S</span>*, Lee E*, Kim R, et al., Kim E.</span> <span class="pj"><i>Frontiers in Molecular Neuroscience</i> (2018) 11, 209. <a href="https://doi.org/10.3389/fnmol.2018.00209">doi</a></span></li>
+            <li><span class="pt">Cell-type-specific Shank2 deletion in mice leads to differential synaptic and behavioral phenotypes.</span> <span class="pa">Kim R*, Kim J*, Chung C*, Ha S, <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>Journal of Neuroscience</i> (2018) 38, 4076-4092. <a href="https://doi.org/10.1523/JNEUROSCI.2684-17.2018">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2016</h3>
+          <ul>
+            <li><span class="pt">Enhanced neuronal activity in the medial prefrontal cortex during social approach behavior.</span> <span class="pa">Lee E*, Rhim I*, Lee JW, Ghim JW, <span class="me">Lee S</span>, Kim E, Jung MW.</span> <span class="pj"><i>Journal of Neuroscience</i> (2016) 36, 6926-6936. <a href="https://doi.org/10.1523/JNEUROSCI.0307-16.2016">doi</a></span></li>
+          </ul>
+        </div>
+        <div class="year">
+          <h3>2015</h3>
+          <ul>
+            <li><span class="pt">Social deficits in IRSp53 mutant mice improved by NMDAR and mGluR5 suppression.</span> <span class="pa">Chung W*, Choi SY*, Lee E*, Park H*, et al., <span class="me">Lee S</span>, et al., Kim E.</span> <span class="pj"><i>Nature Neuroscience</i> (2015) 18, 435-443. <a href="https://doi.org/10.1038/nn.3927">doi</a></span></li>
+          </ul>
+        </div>
+        <p class="pa" style="margin-top:24px">* First or co-first authors. Full list on <a href="https://scholar.google.com/citations?user=JoHZSNwAAAAJ">Google Scholar</a>.</p>
+      </div>
+    </section>
+
+    <section id="talks">
+      <h2>Presentations</h2>
+      <div class="body">
+        <dl class="cv">
+          <dt>2022</dt><dd>Poster, FENS Forum of Neuroscience, Paris, France</dd>
+          <dt>2020</dt><dd>Poster, 32nd KSMCB Annual Meeting, online, Excellent Poster Award</dd>
+          <dt>2019</dt><dd>Poster, 10th IBRO World Congress of Neuroscience, Daegu, Korea</dd>
+          <dt>2019</dt><dd>Poster, IBRO Satellite Meeting on Synaptic Function and Neural Circuitry, Busan, Korea</dd>
+          <dt>2018</dt><dd>Poster, 21st KSBNS Annual Meeting, Seoul, Korea</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="teaching">
+      <h2>Teaching</h2>
+      <div class="body">
+        <dl class="cv">
+          <dt>2023</dt><dd>Instructor, MSE540 Biomedical Imaging, KAIST</dd>
+          <dt>2019</dt><dd>Teaching Assistant, BS319 Cell Biology Experiment, KAIST</dd>
+          <dt>2018</dt><dd>Teaching Assistant, BS310 Genome Molecular Biology, KAIST</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="skills">
+      <h2>Skills</h2>
+      <div class="body">
+        <dl class="cv">
+          <dt>Behavior</dt><dd>Social behavior, anxiety, locomotor activity, learning and memory, chemoconvulsant seizure models</dd>
+          <dt>Surgery</dt><dd>Stereotaxic viral delivery and implants for optogenetics, fiber photometry, miniscope imaging, drug delivery, and head fixation, as well as ovariectomy and castration</dd>
+          <dt>Circuit tools</dt><dd>Optogenetics, chemogenetics (DREADDs), viral vector tools</dd>
+          <dt>Recording</dt><dd>Fiber photometry, Neuropixels, tetrode single-unit recording, ECoG</dd>
+          <dt>Histology</dt><dd>Immunohistochemistry, FISH, tissue clearing and expansion, spatial transcriptomics</dd>
+          <dt>Molecular</dt><dd>PCR, Western blotting</dd>
+          <dt>Engineering</dt><dd>Behavioral apparatus design and fabrication with Rhinoceros CAD, 3D printing, and flatbed laser cutting, as well as Arduino and custom PCBs</dd>
+          <dt>Programming</dt><dd>Python, MATLAB, R, C++</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="tools">
+      <h2>Software and code</h2>
+      <div class="body">
+        <p class="tools-note">Built for my own experiments.</p>
+        <dl class="cv">
+          <dt>Web app</dt><dd><div class="swi"><a class="swn" href="https://github.com/sjleen/allen_ccf_explorer">Allen CCF Explorer</a>
+            <p class="swd">A browser-based 3D viewer of the Allen Mouse Brain Common Coordinate Framework, built for planning stereotaxic surgery. Targets are entered in mediolateral, anteroposterior, and dorsoventral coordinates and checked on coronal, sagittal, and horizontal sections. Probe angles can be set to match a specific stereotaxic manipulator. Path analysis lists every brain region an implant passes through, with entry and exit depths, and exports the result as SVG or CSV. It runs from a single HTML file without installation.</p></div></dd>
+          <dt>Analysis code</dt><dd><div class="swi"><a class="swn" href="https://github.com/sjleen/cilia-stroke-analysis">Cilia stroke analysis</a>
+            <p class="swd">MATLAB code that measures ciliary beat frequency of ependymal cells lining the lateral ventricle from high-speed video recorded at about 1,000 frames per second. Regions of interest are placed along user-drawn lines, pixel intensity changes over time are extracted from each region, and a fast Fourier transform gives a representative beat frequency for each region. Used in Kang et al., <i>PLoS Biology</i> 2024.</p></div></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="contact">
+      <h2>Contact</h2>
+      <div class="body">
+        <address>
+          Salk Institute for Biological Studies<br>
+          10010 N Torrey Pines Rd, La Jolla, CA 92037<br>
+          <a href="mailto:sjlee@salk.edu">sjlee@salk.edu</a>
+        </address>
+        <p class="links"><a href="https://scholar.google.com/citations?user=JoHZSNwAAAAJ">Google Scholar</a><a href="https://github.com/sjleen">GitHub</a><a href="https://x.com/Seungjoon_Lee_0">X</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>Updated November 2026</footer>
+</div>
+</body>
+</html>
