@@ -37,13 +37,15 @@
   a:hover { text-decoration-thickness: 2px; }
   :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
 
-  .page { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  /* content column 992px wide with 24px minimum gutters; the menu bar alone spans the full width */
+  main > header, main > section, footer { margin-inline: max(24px, calc((100% - 992px) / 2)); }
 
   /* section menu: sits between the intro and the details, under a heavier rule */
   /* fixed height (borders included) so the jump offset matches whatever font loads */
-  nav { height: var(--nav-h); display: flex; align-items: center;
-    border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule);
-    font: 15px/1 var(--sans); position: sticky; top: 0; z-index: 10; background: var(--paper); }
+  /* full-width bar so iOS Safari extends its color under the status bar while pinned */
+  nav { height: var(--nav-h); font: 15px/1 var(--sans); position: sticky; top: 0; z-index: 10; background: var(--paper); }
+  .nav-inner { height: 100%; display: flex; align-items: center; margin-inline: max(24px, calc((100% - 992px) / 2));
+    border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); }
   /* keep jumped-to headings clear of the pinned menu */
   /* 1px short so sub-pixel layout never leaves a gap above the pinned menu */
   section { scroll-margin-top: calc(var(--nav-h) - 1px); }
@@ -51,9 +53,6 @@
   nav ul a { color: var(--muted); text-decoration: none; }
   nav ul a:hover { color: var(--ink); }
   @media (max-width: 380px) { nav ul { gap: 14px; } nav { font-size: 14px; } }
-  /* while pinned, cover the strip above the menu (iOS Safari draws the page under its status bar) */
-  nav.stuck::before { content: ""; position: absolute; left: -100vw; right: -100vw; bottom: calc(100% + 2px);
-    height: 100vh; background: var(--paper); }
 
   /* hero */
   .hero { padding: 64px 0 56px; display: grid; grid-template-columns: minmax(0, 44em) minmax(0, 1fr);
@@ -154,14 +153,14 @@
       </aside>
     </section>
 
-    <nav aria-label="Sections">
+    <nav aria-label="Sections"><div class="nav-inner">
       <ul>
         <li><a href="#highlights">Research</a></li>
         <li><a href="#publications">Publications</a></li>
         <li><a href="#skills">Skills</a></li>
         <li><a href="#contact">Contact</a></li>
       </ul>
-    </nav>
+    </div></nav>
 
     <section id="highlights">
       <h2>Research highlights</h2>
@@ -326,17 +325,5 @@
 
   <footer>Updated November 2026</footer>
 </div>
-<script>
-  // mark the menu as pinned once it reaches the top of the screen
-  (function () {
-    var nav = document.querySelector('nav');
-    var mark = document.createElement('div');
-    nav.parentNode.insertBefore(mark, nav);
-    if (!('IntersectionObserver' in window)) return;
-    new IntersectionObserver(function (e) {
-      nav.classList.toggle('stuck', !e[0].isIntersecting && e[0].boundingClientRect.top < 0);
-    }).observe(mark);
-  })();
-</script>
 </body>
 </html>
