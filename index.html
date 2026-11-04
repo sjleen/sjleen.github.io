@@ -91,6 +91,11 @@
   .year li:last-child { margin-bottom: 0; }
   .pt { display: block; color: var(--ink); text-decoration: none; }
   a.pt:hover { color: var(--signal); text-decoration: underline; }
+  /* touch screens have no hover, so keep a faint underline to show titles are links */
+  @media (hover: none) {
+    a.pt { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+      text-decoration-color: color-mix(in srgb, var(--muted) 45%, transparent); }
+  }
   .pa, .pj { display: block; font: 14px/1.55 var(--sans); color: var(--muted); }
   .pj i { font-style: italic; }
   .me { color: var(--ink); font-weight: 600; }
