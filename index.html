@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14191F" media="(prefers-color-scheme: dark)">
 <title>Seungjoon Lee</title>
 <meta name="description" content="Seungjoon Lee, Ph.D., postdoctoral fellow at the Salk Institute studying neuroestrogen circuits, sex differences in social behavior, and autism.">
 <meta property="og:type" content="profile">
@@ -49,6 +51,9 @@
   nav ul a { color: var(--muted); text-decoration: none; }
   nav ul a:hover { color: var(--ink); }
   @media (max-width: 380px) { nav ul { gap: 14px; } nav { font-size: 14px; } }
+  /* while pinned, cover the strip above the menu (iOS Safari draws the page under its status bar) */
+  nav.stuck::before { content: ""; position: absolute; left: -100vw; right: -100vw; bottom: calc(100% + 2px);
+    height: 100vh; background: var(--paper); }
 
   /* hero */
   .hero { padding: 64px 0 56px; display: grid; grid-template-columns: minmax(0, 44em) minmax(0, 1fr);
@@ -321,5 +326,17 @@
 
   <footer>Updated November 2026</footer>
 </div>
+<script>
+  // mark the menu as pinned once it reaches the top of the screen
+  (function () {
+    var nav = document.querySelector('nav');
+    var mark = document.createElement('div');
+    nav.parentNode.insertBefore(mark, nav);
+    if (!('IntersectionObserver' in window)) return;
+    new IntersectionObserver(function (e) {
+      nav.classList.toggle('stuck', !e[0].isIntersecting && e[0].boundingClientRect.top < 0);
+    }).observe(mark);
+  })();
+</script>
 </body>
 </html>
