@@ -18,7 +18,12 @@
   #status { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; font-size: 12px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 6px; }
   #debug { position: fixed; top: calc(36px + env(safe-area-inset-top)); left: 8px; width: 140px; border: 1px solid #555; display: none; }
   #result { position: fixed; inset: 0; background: #111; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; box-sizing: border-box; }
-  #out { max-width: 100%; max-height: 75vh; background: #fff; }
+  #out { max-width: 100%; max-height: 60vh; background: #fff; }
+  #ratios { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  #ratios button { font-size: 13px; padding: 6px 10px; background: #333; }
+  #ratios button.on { background: #2d7ff9; }
+  #ratioInfo { font-size: 12px; color: #aaa; text-align: center; }
+  select { font-size: 14px; padding: 6px; border-radius: 8px; max-width: 46vw; }
 </style>
 </head>
 <body>
@@ -30,12 +35,15 @@
 <canvas id="debug"></canvas>
 <div id="bar">
   <button id="start">Start camera</button>
+  <select id="camSel" style="display:none" aria-label="Camera"></select>
   <button id="shutter" disabled aria-label="Capture"></button>
   <label>Edge min <input id="edgeMin" type="range" min="20" max="200" value="60"></label>
   <label><input id="dbg" type="checkbox"> Edges</label>
 </div>
 <div id="result">
   <canvas id="out"></canvas>
+  <div id="ratioInfo"></div>
+  <div id="ratios"></div>
   <div><button id="save">Save PNG</button> <button id="back">Back</button></div>
 </div>
 
@@ -291,6 +299,54 @@ function findQuad(bin, w, h, labels, stack) {
   return best;
 }
 
+function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+// Estimate the real width/height ratio of a rectangle seen in perspective.
+// quad: TL, TR, BR, BL in pixels (edge TL-TR = "width"). vw, vh: image size.
+// upCam: plane normal in camera coords (x right, y down, z forward), from the gyro, or null.
+// Pinhole model with principal point at image center and square pixels.
+// Focal length f: 1) gyro + vanishing point, 2) two vanishing points (Zhang-He), 3) default.
+function estimateRatio(quad, vw, vh, upCam, defaultF) {
+  const D = Math.max(vw, vh), u0 = vw / 2, v0 = vh / 2;
+  const P = quad.map(p => [(p[0] - u0) / D, (p[1] - v0) / D, 1]);
+  const m1 = P[0], m2 = P[1], m4 = P[2], m3 = P[3];
+  const k2 = dot3(cross3(m1, m4), m3) / dot3(cross3(m2, m4), m3);
+  const k3 = dot3(cross3(m1, m4), m2) / dot3(cross3(m3, m4), m2);
+  const n2 = m2.map((v, i) => k2 * v - m1[i]);
+  const n3 = m3.map((v, i) => k3 * v - m1[i]);
+  const ratioWithF = f => Math.sqrt((n2[0] * n2[0] + n2[1] * n2[1]) / (f * f) + n2[2] * n2[2]) /
+                          Math.sqrt((n3[0] * n3[0] + n3[1] * n3[1]) / (f * f) + n3[2] * n3[2]);
+  const okF = f => isFinite(f) && f > 0.3 && f < 3;
+  // 1) Gyro: the plane's vanishing line is K^-T n, so any finite vanishing point v gives f
+  if (upCam && Math.abs(upCam[2]) > 0.2) {
+    const vA = cross3(cross3(m1, m2), cross3(m3, m4));
+    const vB = cross3(cross3(m1, m3), cross3(m2, m4));
+    const fin = v => Math.abs(v[2]) / (Math.hypot(v[0], v[1]) || 1e-12);
+    const v = fin(vA) > fin(vB) ? vA : vB;
+    if (fin(v) > 0.05) {
+      const f = -(upCam[0] * v[0] + upCam[1] * v[1]) / (upCam[2] * v[2]);
+      if (okF(f)) return { ratio: ratioWithF(f), f: f * D, method: 'gyro' };
+    }
+  }
+  // 2) Two finite vanishing points
+  if (Math.abs(n2[2]) > 0.02 && Math.abs(n3[2]) > 0.02) {
+    const f2 = -(n2[0] * n3[0] + n2[1] * n3[1]) / (n2[2] * n3[2]);
+    if (f2 > 0 && okF(Math.sqrt(f2))) return { ratio: ratioWithF(Math.sqrt(f2)), f: Math.sqrt(f2) * D, method: 'vanishing points' };
+  }
+  // 3) Default per lens type (main camera about 26 mm equiv.)
+  const f = defaultF || 0.8;
+  return { ratio: ratioWithF(f), f: f * D, method: 'default focal' };
+}
+
+// World "up" in rear-camera coords from DeviceOrientation beta/gamma (deg) and screen angle (deg)
+function deviceUpToCamera(beta, gamma, screenAngle) {
+  const b = beta * Math.PI / 180, g = gamma * Math.PI / 180, a = screenAngle * Math.PI / 180;
+  const ux = -Math.sin(g) * Math.cos(b), uy = Math.sin(b), uz = Math.cos(g) * Math.cos(b);
+  const sx = ux * Math.cos(a) - uy * Math.sin(a), sy = ux * Math.sin(a) + uy * Math.cos(a);
+  return [sx, -sy, -uz];
+}
+
 // Homography mapping dst -> src (8 unknowns, Gaussian elimination)
 function homography(src, dst) {
   const A = [];
@@ -432,25 +488,99 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+// ---------- Camera selection ----------
+let stream = null, loopStarted = false, curLabel = '';
+function defaultFocalFor(label) {
+  if (/ultra/i.test(label)) return 0.4;      // ultra wide, about 13 mm equiv.
+  if (/tele/i.test(label)) return 2.2;       // telephoto, about 77 mm equiv.
+  return 0.8;                                // main camera, about 26 mm equiv.
+}
+
+async function openCamera(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const video0 = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+  if (deviceId) video0.deviceId = { exact: deviceId };
+  else video0.facingMode = { ideal: 'environment' };
+  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: video0 });
+  video.srcObject = stream;
+  await video.play();
+  const tr = stream.getVideoTracks()[0];
+  curLabel = tr.label || '';
+  track.q = null; track.hits = 0;
+  return tr.getSettings ? tr.getSettings().deviceId : undefined;
+}
+
+async function fillCameraList(activeId) {
+  const sel = $('camSel');
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  sel.innerHTML = '';
+  devs.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || ('Camera ' + (i + 1));
+    if (d.deviceId === activeId) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.style.display = devs.length > 1 ? 'block' : 'none';
+}
+
+// ---------- Gyro ----------
+let orient = null;
+window.addEventListener('deviceorientation', e => {
+  if (e.beta !== null && e.gamma !== null) orient = { beta: e.beta, gamma: e.gamma };
+});
+function screenAngle() {
+  if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
+  return window.orientation || 0;
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     statusEl.textContent = 'Camera API not available (HTTPS required)';
     return;
   }
+  // iOS 13+: motion permission must be requested inside the tap handler
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try { await DeviceOrientationEvent.requestPermission(); } catch (e) { /* gyro just stays off */ }
+  }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-    });
-    video.srcObject = stream;
-    await video.play();
+    const id = await openCamera(null);
+    await fillCameraList(id);   // labels are only available after permission
     $('start').style.display = 'none';
     $('shutter').disabled = false;
-    requestAnimationFrame(loop);
+    if (!loopStarted) { loopStarted = true; requestAnimationFrame(loop); }
   } catch (e) {
     statusEl.textContent = 'Camera error: ' + e.name;
   }
 }
+
+$('camSel').onchange = async e => {
+  try { await openCamera(e.target.value); }
+  catch (err) { statusEl.textContent = 'Camera error: ' + err.name; }
+};
+
+// ---------- Capture and ratio ----------
+const RATIOS = [
+  { id: 'auto', label: 'Auto' }, { id: 'raw', label: 'Raw' },
+  { id: 'a4', label: 'A4', r: 297 / 210 }, { id: 'letter', label: 'Letter', r: 11 / 8.5 },
+  { id: 'legal', label: 'Legal', r: 14 / 8.5 }, { id: 'id1', label: 'ID card', r: 85.60 / 53.98 },
+  { id: 'biz', label: 'Biz card', r: 3.5 / 2 }, { id: 'square', label: '1:1', r: 1 }
+];
+let cap = null;
+
+(function buildRatioButtons() {
+  const box = $('ratios');
+  for (const R of RATIOS) {
+    const b = document.createElement('button');
+    b.textContent = R.label; b.dataset.id = R.id;
+    b.onclick = () => { cap.mode = R.id; renderResult(); };
+    box.appendChild(b);
+  }
+  const sw = document.createElement('button');
+  sw.textContent = 'Swap W/H'; sw.dataset.id = 'swap';
+  sw.onclick = () => { cap.swap = !cap.swap; renderResult(); };
+  box.appendChild(sw);
+})();
 
 function capture() {
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -458,25 +588,59 @@ function capture() {
   full.width = vw; full.height = vh;
   const fctx = full.getContext('2d');
   fctx.drawImage(video, 0, 0, vw, vh);
-  const out = $('out'), outCtx = out.getContext('2d');
   if (trackVisible()) {
     const k = vw / W;
-    const q = track.q.map(p => [p[0] * k, p[1] * k]);
-    let OW = Math.max(dist(q[0], q[1]), dist(q[3], q[2]));
-    let OH = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
-    const cap = 2400 / Math.max(OW, OH);
-    if (cap < 1) { OW *= cap; OH *= cap; }
-    OW = Math.round(OW); OH = Math.round(OH);
-    const src = fctx.getImageData(0, 0, vw, vh).data;
-    out.width = OW; out.height = OH;
-    const img = outCtx.createImageData(OW, OH);
-    warpPerspective(src, vw, vh, q, OW, OH, img.data);
-    outCtx.putImageData(img, 0, 0);
+    const quad = track.q.map(p => [p[0] * k, p[1] * k]);
+    // Gyro only when the camera points generally downward (document assumed flat on a table)
+    let upCam = null;
+    if (orient) {
+      const u = deviceUpToCamera(orient.beta, orient.gamma, screenAngle());
+      if (u[2] < -0.5) upCam = u;
+    }
+    const est = estimateRatio(quad, vw, vh, upCam, defaultFocalFor(curLabel));
+    cap = { data: fctx.getImageData(0, 0, vw, vh), vw, vh, quad, est, mode: 'auto', swap: false,
+            gyro: orient ? (upCam ? 'used' : 'not facing down') : 'unavailable' };
+    $('ratios').style.display = 'flex';
+    renderResult();
   } else {
+    cap = null;
+    const out = $('out');
     out.width = vw; out.height = vh;
-    outCtx.drawImage(full, 0, 0);
+    out.getContext('2d').drawImage(full, 0, 0);
+    $('ratios').style.display = 'none';
+    $('ratioInfo').textContent = 'No rectangle detected: full frame saved as is';
   }
   $('result').style.display = 'flex';
+}
+
+function renderResult() {
+  const { data, vw, vh, quad, est } = cap;
+  const mw = Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]));
+  const mh = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
+  let ratio, info;
+  if (cap.mode === 'raw') { ratio = mw / mh; info = 'Raw (edge lengths)'; }
+  else if (cap.mode === 'auto') { ratio = est.ratio; info = `Auto (${est.method}, f=${Math.round(est.f)} px)`; }
+  else {
+    const R = RATIOS.find(x => x.id === cap.mode);
+    ratio = est.ratio >= 1 ? R.r : 1 / R.r;   // orientation from the Auto estimate
+    info = R.label;
+  }
+  if (cap.swap) ratio = 1 / ratio;
+  let OW = Math.max(mw, mh * ratio), OH = OW / ratio;
+  const s = 2400 / Math.max(OW, OH);
+  if (s < 1) { OW *= s; OH *= s; }
+  OW = Math.max(1, Math.round(OW)); OH = Math.max(1, Math.round(OH));
+  const out = $('out'), octx2 = out.getContext('2d');
+  out.width = OW; out.height = OH;
+  const img = octx2.createImageData(OW, OH);
+  warpPerspective(data.data, vw, vh, quad, OW, OH, img.data);
+  octx2.putImageData(img, 0, 0);
+  const longShort = Math.max(OW, OH) / Math.min(OW, OH);
+  $('ratioInfo').textContent = `${info} | long/short = ${longShort.toFixed(3)} | ${OW} x ${OH} px | gyro: ${cap.gyro}` +
+    (curLabel ? ` | ${curLabel}` : '');
+  for (const b of $('ratios').children) {
+    b.classList.toggle('on', b.dataset.id === cap.mode || (b.dataset.id === 'swap' && cap.swap));
+  }
 }
 
 $('start').onclick = startCamera;
