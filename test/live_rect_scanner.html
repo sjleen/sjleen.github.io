@@ -24,7 +24,9 @@
   #panel { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 8px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a; }
   #ratios { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
   #ratios button { flex: none; font-size: 13px; padding: 7px 11px; background: #333; }
-  #ratios button.on { background: #2d7ff9; }
+  #ratios button.on, #filters button.on { background: #2d7ff9; }
+  #filters { display: flex; gap: 6px; justify-content: center; }
+  #filters button { flex: none; font-size: 13px; padding: 7px 14px; background: #333; }
   #ratioInfo { font-size: 11px; color: #aaa; text-align: center; overflow-wrap: anywhere; }
   .row { display: flex; gap: 8px; }
   .row button { flex: 1; font-size: 15px; padding: 10px 6px; }
@@ -54,6 +56,7 @@
   <div id="panel">
     <div id="ratioInfo"></div>
     <div id="ratios"></div>
+    <div id="filters"><button id="grayBtn">B/W</button><button id="mmBtn">Min-max</button></div>
     <div class="row" id="reviewRow">
       <button id="editBtn" class="gray">Edit corners</button>
       <button id="save">Save PNG</button>
@@ -627,6 +630,44 @@ function capture() {
   else enterEdit();   // nothing detected: let the user place the corners
 }
 
+// Grayscale and min-max contrast stretch, applied to a copy of the warped image (no re-warp)
+function paintOutput() {
+  const src = cap.warped;
+  const img = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+  const d = img.data, n = src.width * src.height;
+  if (cap.gray) {
+    for (let j = 0; j < d.length; j += 4) { const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8; d[j] = d[j + 1] = d[j + 2] = y; }
+  }
+  let mmText = '';
+  if (cap.minmax) {
+    // Luminance range with 0.5% clipped at each end (one hot pixel would otherwise cancel the stretch).
+    // Same gain on R, G, B so colors do not shift.
+    const hist = new Uint32Array(256);
+    for (let j = 0; j < d.length; j += 4) hist[(d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8]++;
+    const clip = n * 0.005;
+    let lo = 0, hi = 255, c = 0;
+    for (lo = 0; lo < 255; lo++) { c += hist[lo]; if (c > clip) break; }
+    c = 0;
+    for (hi = 255; hi > 0; hi--) { c += hist[hi]; if (c > clip) break; }
+    if (hi - lo >= 1) {
+      const g = 255 / (hi - lo);
+      for (let j = 0; j < d.length; j += 4) {
+        d[j] = (d[j] - lo) * g; d[j + 1] = (d[j + 1] - lo) * g; d[j + 2] = (d[j + 2] - lo) * g;
+      }
+    }
+    mmText = ` | min-max ${lo}-${hi}`;
+  }
+  const out = $('out');
+  out.width = src.width; out.height = src.height;
+  out.getContext('2d').putImageData(img, 0, 0);
+  const longShort = Math.max(src.width, src.height) / Math.min(src.width, src.height);
+  $('ratioInfo').textContent = `${cap.info} | long/short = ${longShort.toFixed(3)} | ${src.width} x ${src.height} px` +
+    (cap.gray ? ' | B/W' : '') + mmText + ` | gyro: ${cap.gyro}` +
+    (cap.edited ? ' | corners edited' : '') + (curLabel ? ` | ${curLabel}` : '');
+  $('grayBtn').classList.toggle('on', !!cap.gray);
+  $('mmBtn').classList.toggle('on', !!cap.minmax);
+}
+
 function insetQuad(vw, vh, f) {
   return [[vw * f, vh * f], [vw * (1 - f), vh * f], [vw * (1 - f), vh * (1 - f)], [vw * f, vh * (1 - f)]];
 }
@@ -652,10 +693,9 @@ function renderResult() {
   out.width = OW; out.height = OH;
   const img = octx2.createImageData(OW, OH);
   warpPerspective(data.data, vw, vh, quad, OW, OH, img.data);
-  octx2.putImageData(img, 0, 0);
-  const longShort = Math.max(OW, OH) / Math.min(OW, OH);
-  $('ratioInfo').textContent = `${info} | long/short = ${longShort.toFixed(3)} | ${OW} x ${OH} px | gyro: ${cap.gyro}` +
-    (cap.edited ? ' | corners edited' : '') + (curLabel ? ` | ${curLabel}` : '');
+  cap.warped = img;
+  cap.info = info;
+  paintOutput();
   for (const b of $('ratios').children) {
     b.classList.toggle('on', b.dataset.id === cap.mode || (b.dataset.id === 'swap' && cap.swap));
   }
@@ -669,6 +709,7 @@ function showReview() {
   $('out').style.display = ''; editCv.style.display = 'none';
   $('reviewRow').style.display = 'flex'; $('editRow').style.display = 'none';
   $('ratios').style.display = 'flex';
+  $('filters').style.display = 'flex';
 }
 
 function enterEdit() {
@@ -676,6 +717,7 @@ function enterEdit() {
   $('out').style.display = 'none'; editCv.style.display = 'block';
   $('reviewRow').style.display = 'none'; $('editRow').style.display = 'flex';
   $('ratios').style.display = 'none';
+  $('filters').style.display = 'none';
   $('ratioInfo').textContent = 'Drag the corners. A magnifier appears while dragging.';
   requestAnimationFrame(drawEdit);
 }
@@ -764,6 +806,8 @@ editCv.addEventListener('pointercancel', endDrag);
 window.addEventListener('resize', () => { if (editCv.style.display === 'block') drawEdit(); });
 
 $('editBtn').onclick = enterEdit;
+$('grayBtn').onclick = () => { cap.gray = !cap.gray; paintOutput(); };
+$('mmBtn').onclick = () => { cap.minmax = !cap.minmax; paintOutput(); };
 $('resetBtn').onclick = () => { editQuad = cap.detectedQuad.map(p => p.slice()); drawEdit(); };
 $('fullBtn').onclick = () => { editQuad = insetQuad(cap.vw, cap.vh, 0); drawEdit(); };
 $('cancelBtn').onclick = () => { showReview(); renderResult(); };
