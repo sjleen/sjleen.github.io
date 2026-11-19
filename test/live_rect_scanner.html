@@ -17,12 +17,18 @@
   label { font-size: 13px; display: flex; align-items: center; gap: 6px; }
   #status { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 8px; font-size: 12px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 6px; }
   #debug { position: fixed; top: calc(36px + env(safe-area-inset-top)); left: 8px; width: 140px; border: 1px solid #555; display: none; }
-  #result { position: fixed; inset: 0; background: #111; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; box-sizing: border-box; }
-  #out { max-width: 100%; max-height: 60vh; background: #fff; }
+  #result { position: fixed; inset: 0; background: #111; display: none; flex-direction: column; }
+  #view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: calc(8px + env(safe-area-inset-top)) 8px 8px; box-sizing: border-box; }
+  #out { max-width: 100%; max-height: 100%; background: #fff; }
+  #edit { width: 100%; height: 100%; display: none; touch-action: none; }
+  #panel { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 8px calc(10px + env(safe-area-inset-bottom)); background: #1a1a1a; }
   #ratios { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-  #ratios button { font-size: 13px; padding: 6px 10px; background: #333; }
+  #ratios button { flex: none; font-size: 13px; padding: 7px 11px; background: #333; }
   #ratios button.on { background: #2d7ff9; }
-  #ratioInfo { font-size: 12px; color: #aaa; text-align: center; }
+  #ratioInfo { font-size: 11px; color: #aaa; text-align: center; overflow-wrap: anywhere; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; font-size: 15px; padding: 10px 6px; }
+  .row button.gray { background: #444; }
   select { font-size: 14px; padding: 6px; border-radius: 8px; max-width: 46vw; }
 </style>
 </head>
@@ -41,10 +47,25 @@
   <label><input id="dbg" type="checkbox"> Edges</label>
 </div>
 <div id="result">
-  <canvas id="out"></canvas>
-  <div id="ratioInfo"></div>
-  <div id="ratios"></div>
-  <div><button id="save">Save PNG</button> <button id="back">Back</button></div>
+  <div id="view">
+    <canvas id="out"></canvas>
+    <canvas id="edit"></canvas>
+  </div>
+  <div id="panel">
+    <div id="ratioInfo"></div>
+    <div id="ratios"></div>
+    <div class="row" id="reviewRow">
+      <button id="editBtn" class="gray">Edit corners</button>
+      <button id="save">Save PNG</button>
+      <button id="back" class="gray">Retake</button>
+    </div>
+    <div class="row" id="editRow" style="display:none">
+      <button id="resetBtn" class="gray">Reset</button>
+      <button id="fullBtn" class="gray">Full frame</button>
+      <button id="cancelBtn" class="gray">Cancel</button>
+      <button id="doneBtn">Done</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -588,29 +609,26 @@ function capture() {
   full.width = vw; full.height = vh;
   const fctx = full.getContext('2d');
   fctx.drawImage(video, 0, 0, vw, vh);
-  if (trackVisible()) {
-    const k = vw / W;
-    const quad = track.q.map(p => [p[0] * k, p[1] * k]);
-    // Gyro only when the camera points generally downward (document assumed flat on a table)
-    let upCam = null;
-    if (orient) {
-      const u = deviceUpToCamera(orient.beta, orient.gamma, screenAngle());
-      if (u[2] < -0.5) upCam = u;
-    }
-    const est = estimateRatio(quad, vw, vh, upCam, defaultFocalFor(curLabel));
-    cap = { data: fctx.getImageData(0, 0, vw, vh), vw, vh, quad, est, mode: 'auto', swap: false,
-            gyro: orient ? (upCam ? 'used' : 'not facing down') : 'unavailable' };
-    $('ratios').style.display = 'flex';
-    renderResult();
-  } else {
-    cap = null;
-    const out = $('out');
-    out.width = vw; out.height = vh;
-    out.getContext('2d').drawImage(full, 0, 0);
-    $('ratios').style.display = 'none';
-    $('ratioInfo').textContent = 'No rectangle detected: full frame saved as is';
+  let upCam = null;
+  if (orient) {
+    const u = deviceUpToCamera(orient.beta, orient.gamma, screenAngle());
+    if (u[2] < -0.5) upCam = u;   // camera points generally downward: document assumed flat on a table
   }
+  const detected = trackVisible();
+  const k = vw / W;
+  const quad = detected ? track.q.map(p => [p[0] * k, p[1] * k]) : insetQuad(vw, vh, 0.1);
+  cap = { full, data: fctx.getImageData(0, 0, vw, vh), vw, vh, quad, detectedQuad: quad.map(p => p.slice()),
+          detected, upCam, defaultF: defaultFocalFor(curLabel), mode: 'auto', swap: false,
+          gyro: orient ? (upCam ? 'used' : 'not facing down') : 'unavailable' };
+  cap.est = estimateRatio(quad, vw, vh, upCam, cap.defaultF);
   $('result').style.display = 'flex';
+  showReview();
+  if (detected) renderResult();
+  else enterEdit();   // nothing detected: let the user place the corners
+}
+
+function insetQuad(vw, vh, f) {
+  return [[vw * f, vh * f], [vw * (1 - f), vh * f], [vw * (1 - f), vh * (1 - f)], [vw * f, vh * (1 - f)]];
 }
 
 function renderResult() {
@@ -637,15 +655,129 @@ function renderResult() {
   octx2.putImageData(img, 0, 0);
   const longShort = Math.max(OW, OH) / Math.min(OW, OH);
   $('ratioInfo').textContent = `${info} | long/short = ${longShort.toFixed(3)} | ${OW} x ${OH} px | gyro: ${cap.gyro}` +
-    (curLabel ? ` | ${curLabel}` : '');
+    (cap.edited ? ' | corners edited' : '') + (curLabel ? ` | ${curLabel}` : '');
   for (const b of $('ratios').children) {
     b.classList.toggle('on', b.dataset.id === cap.mode || (b.dataset.id === 'swap' && cap.swap));
   }
 }
 
+// ---------- Corner editing ----------
+const editCv = $('edit'), ectx = editCv.getContext('2d');
+let editQuad = null, dragIdx = -1, fit = null;
+
+function showReview() {
+  $('out').style.display = ''; editCv.style.display = 'none';
+  $('reviewRow').style.display = 'flex'; $('editRow').style.display = 'none';
+  $('ratios').style.display = 'flex';
+}
+
+function enterEdit() {
+  editQuad = cap.quad.map(p => p.slice());
+  $('out').style.display = 'none'; editCv.style.display = 'block';
+  $('reviewRow').style.display = 'none'; $('editRow').style.display = 'flex';
+  $('ratios').style.display = 'none';
+  $('ratioInfo').textContent = 'Drag the corners. A magnifier appears while dragging.';
+  requestAnimationFrame(drawEdit);
+}
+
+function drawEdit() {
+  const dpr = window.devicePixelRatio || 1;
+  const cw = editCv.clientWidth, ch = editCv.clientHeight;
+  if (!cw || !ch) return;
+  editCv.width = Math.round(cw * dpr); editCv.height = Math.round(ch * dpr);
+  const { vw, vh } = cap;
+  const s = Math.min(cw / vw, ch / vh);
+  fit = { s, ox: (cw - vw * s) / 2, oy: (ch - vh * s) / 2, cw, ch };
+  ectx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ectx.clearRect(0, 0, cw, ch);
+  ectx.drawImage(cap.full, fit.ox, fit.oy, vw * s, vh * s);
+  const P = editQuad.map(p => [fit.ox + p[0] * s, fit.oy + p[1] * s]);
+  // dim outside the quad
+  ectx.save();
+  ectx.beginPath();
+  ectx.rect(fit.ox, fit.oy, vw * s, vh * s);
+  ectx.moveTo(P[0][0], P[0][1]); for (let i = 3; i >= 1; i--) ectx.lineTo(P[i][0], P[i][1]); ectx.closePath();
+  ectx.fillStyle = 'rgba(0,0,0,0.45)'; ectx.fill('evenodd');
+  ectx.restore();
+  ectx.beginPath();
+  ectx.moveTo(P[0][0], P[0][1]); for (let i = 1; i < 4; i++) ectx.lineTo(P[i][0], P[i][1]); ectx.closePath();
+  ectx.lineWidth = 2; ectx.strokeStyle = isConvex(editQuad) ? '#2d7ff9' : '#ff4d4d'; ectx.stroke();
+  P.forEach((p, i) => {
+    ectx.beginPath(); ectx.arc(p[0], p[1], i === dragIdx ? 16 : 12, 0, Math.PI * 2);
+    ectx.fillStyle = 'rgba(255,255,255,0.35)'; ectx.fill();
+    ectx.lineWidth = 2; ectx.strokeStyle = '#fff'; ectx.stroke();
+  });
+  if (dragIdx >= 0) drawLoupe(P[dragIdx], editQuad[dragIdx]);
+}
+
+// Magnifier above the finger: 3x of the source image around the dragged corner
+function drawLoupe(pd, pi) {
+  const R = 60, Z = 3 * fit.s;
+  let cx = pd[0], cy = pd[1] - 110;
+  if (cy - R < 0) cy = pd[1] + 110;
+  cx = Math.max(R + 4, Math.min(fit.cw - R - 4, cx));
+  ectx.save();
+  ectx.beginPath(); ectx.arc(cx, cy, R, 0, Math.PI * 2); ectx.clip();
+  ectx.fillStyle = '#000'; ectx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  ectx.drawImage(cap.full, cx - pi[0] * Z, cy - pi[1] * Z, cap.vw * Z, cap.vh * Z);
+  // quad edges inside the loupe
+  const L = editQuad.map(p => [cx + (p[0] - pi[0]) * Z, cy + (p[1] - pi[1]) * Z]);
+  ectx.beginPath(); ectx.moveTo(L[0][0], L[0][1]); for (let i = 1; i < 4; i++) ectx.lineTo(L[i][0], L[i][1]); ectx.closePath();
+  ectx.lineWidth = 1.5; ectx.strokeStyle = '#2d7ff9'; ectx.stroke();
+  ectx.restore();
+  ectx.beginPath(); ectx.arc(cx, cy, R, 0, Math.PI * 2); ectx.lineWidth = 2; ectx.strokeStyle = '#fff'; ectx.stroke();
+  ectx.beginPath(); ectx.moveTo(cx - 10, cy); ectx.lineTo(cx + 10, cy); ectx.moveTo(cx, cy - 10); ectx.lineTo(cx, cy + 10);
+  ectx.lineWidth = 1; ectx.strokeStyle = '#ff4d4d'; ectx.stroke();
+}
+
+function toImg(e) {
+  const r = editCv.getBoundingClientRect();
+  const x = (e.clientX - r.left - fit.ox) / fit.s, y = (e.clientY - r.top - fit.oy) / fit.s;
+  return [Math.max(0, Math.min(cap.vw - 1, x)), Math.max(0, Math.min(cap.vh - 1, y))];
+}
+let grabOff = [0, 0];
+editCv.addEventListener('pointerdown', e => {
+  if (!fit) return;
+  const r = editCv.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  let best = -1, bd = 44;   // touch radius in CSS px
+  editQuad.forEach((p, i) => {
+    const d = Math.hypot(fit.ox + p[0] * fit.s - px, fit.oy + p[1] * fit.s - py);
+    if (d < bd) { bd = d; best = i; }
+  });
+  if (best < 0) return;
+  dragIdx = best;
+  const q = toImg(e);
+  grabOff = [editQuad[best][0] - q[0], editQuad[best][1] - q[1]];   // no jump when grabbing off-center
+  editCv.setPointerCapture(e.pointerId);
+  drawEdit();
+});
+editCv.addEventListener('pointermove', e => {
+  if (dragIdx < 0) return;
+  const q = toImg(e);
+  editQuad[dragIdx] = [Math.max(0, Math.min(cap.vw - 1, q[0] + grabOff[0])), Math.max(0, Math.min(cap.vh - 1, q[1] + grabOff[1]))];
+  drawEdit();
+});
+const endDrag = () => { if (dragIdx >= 0) { dragIdx = -1; drawEdit(); } };
+editCv.addEventListener('pointerup', endDrag);
+editCv.addEventListener('pointercancel', endDrag);
+window.addEventListener('resize', () => { if (editCv.style.display === 'block') drawEdit(); });
+
+$('editBtn').onclick = enterEdit;
+$('resetBtn').onclick = () => { editQuad = cap.detectedQuad.map(p => p.slice()); drawEdit(); };
+$('fullBtn').onclick = () => { editQuad = insetQuad(cap.vw, cap.vh, 0); drawEdit(); };
+$('cancelBtn').onclick = () => { showReview(); renderResult(); };
+$('doneBtn').onclick = () => {
+  if (!isConvex(editQuad)) { $('ratioInfo').textContent = 'Corners cross each other. Fix the red outline first.'; return; }
+  cap.quad = orderQuad(editQuad);
+  cap.edited = true;
+  cap.est = estimateRatio(cap.quad, cap.vw, cap.vh, cap.upCam, cap.defaultF);
+  showReview(); renderResult();
+};
+
 $('start').onclick = startCamera;
 $('shutter').onclick = capture;
-$('back').onclick = () => { $('result').style.display = 'none'; };
+$('back').onclick = () => { $('result').style.display = 'none'; cap = null; };
 $('dbg').onchange = e => { debugCv.style.display = e.target.checked ? 'block' : 'none'; };
 $('save').onclick = () => {
   $('out').toBlob(b => {
