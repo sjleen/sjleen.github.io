@@ -59,7 +59,7 @@
     <div id="filters"><button id="grayBtn">B/W</button><button id="mmBtn">Min-max</button></div>
     <div class="row" id="reviewRow">
       <button id="editBtn" class="gray">Edit corners</button>
-      <button id="save">Save PNG</button>
+      <button id="save">Save</button>
       <button id="back" class="gray">Retake</button>
     </div>
     <div class="row" id="editRow" style="display:none">
@@ -278,11 +278,12 @@ function orderQuad(q) {
   return [s[k], s[(k + 1) % 4], s[(k + 2) % 4], s[(k + 3) % 4]].map(p => [p[0], p[1]]);
 }
 
-// Find the largest valid quadrilateral among edge components
-function findQuad(bin, w, h, labels, stack) {
+// Quad candidates from edge components (convex hull + polygon approximation)
+function contourCandidates(bin, w, h, labels, stack) {
   labels.fill(0);
   const minArea = 0.06 * w * h;
-  let best = null, lab = 0;
+  const out = [];
+  let lab = 0;
   const n = w * h;
   for (let i0 = 0; i0 < n; i0++) {
     if (!bin[i0] || labels[i0]) continue;
@@ -304,7 +305,6 @@ function findQuad(bin, w, h, labels, stack) {
       }
     }
     if ((maxx - minx) * (maxy - miny) < minArea) continue;
-    // Row extremes are enough for the convex hull
     const pts = [];
     for (let y = miny; y <= maxy; y++) {
       const r = y * w; let l = -1, rr = -1;
@@ -316,11 +316,316 @@ function findQuad(bin, w, h, labels, stack) {
     if (ha < minArea) continue;
     const q = approxQuad(hull);
     if (!q) continue;
-    const qa = polyArea(q);
-    if (qa < minArea || qa / ha < 0.85 || !isConvex(q) || !anglesOk(q, 35, 145)) continue;
-    if (!best || qa > best.area) best = { pts: orderQuad(q), area: qa };
+    if (polyArea(q) / ha < 0.85) continue;
+    out.push(q);
+  }
+  return out;
+}
+
+// Sobel with gradient components (needed for edge orientation)
+function sobelXY(s, gx, gy, mag, gn, w, h) {
+  gx.fill(0); gy.fill(0); mag.fill(0); gn.fill(1);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const a = s[i - w - 1], b = s[i - w], c = s[i - w + 1];
+      const d = s[i - 1], f = s[i + 1];
+      const g = s[i + w - 1], hh = s[i + w], k = s[i + w + 1];
+      const X = (c + 2 * f + k) - (a + 2 * d + g);
+      const Y = (g + 2 * hh + k) - (a + 2 * b + c);
+      gx[i] = X; gy[i] = Y; mag[i] = (X < 0 ? -X : X) + (Y < 0 ? -Y : Y);
+      gn[i] = Math.sqrt(X * X + Y * Y) || 1;
+    }
+  }
+}
+
+// Non-maximum suppression: thin (1 px) edges at the gradient peak
+function nms(mag, gx, gy, t, thin, w, h) {
+  thin.fill(0);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x, m = mag[i];
+      if (m <= t) continue;
+      const ax = Math.abs(gx[i]), ay = Math.abs(gy[i]);
+      let a, b;
+      if (ay * 2.414 < ax) { a = mag[i - 1]; b = mag[i + 1]; }
+      else if (ax * 2.414 < ay) { a = mag[i - w]; b = mag[i + w]; }
+      else if ((gx[i] > 0) === (gy[i] > 0)) { a = mag[i - w - 1]; b = mag[i + w + 1]; }
+      else { a = mag[i - w + 1]; b = mag[i + w - 1]; }
+      if (m >= a && m > b) thin[i] = 1;
+    }
+  }
+}
+
+const NT = 180, COS_T = new Float32Array(NT), SIN_T = new Float32Array(NT);
+for (let t = 0; t < NT; t++) { COS_T[t] = Math.cos(t * Math.PI / NT); SIN_T[t] = Math.sin(t * Math.PI / NT); }
+
+// Gradient-guided Hough transform: each edge pixel votes near its own normal angle, weighted by strength
+function houghLines(thin, gx, gy, mag, w, h, acc, K) {
+  const ro = w, NR = acc.length / NT;
+  acc.fill(0);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (!thin[i]) continue;
+      let th = Math.atan2(gy[i], gx[i]); if (th < 0) th += Math.PI;
+      const tb = Math.round(th * NT / Math.PI) % NT;
+      for (let d = -2; d <= 2; d++) {
+        const t = (tb + d + NT) % NT;
+        const r = Math.round(x * COS_T[t] + y * SIN_T[t]) + ro;
+        if (r >= 0 && r < NR) acc[t * NR + r] += mag[i];
+      }
+    }
+  }
+  let mx = 0;
+  for (let i = 0; i < acc.length; i++) if (acc[i] > mx) mx = acc[i];
+  if (mx <= 0) return [];
+  const thr = 0.06 * mx, cand = [];
+  for (let t = 0; t < NT; t++) {
+    for (let r = 1; r < NR - 1; r++) {
+      const v = acc[t * NR + r];
+      if (v < thr) continue;
+      let isMax = true;
+      for (let dt = -1; dt <= 1 && isMax; dt++) {
+        const tt = (t + dt + NT) % NT;
+        for (let dr = -1; dr <= 1; dr++) { if ((dt || dr) && acc[tt * NR + r + dr] > v) { isMax = false; break; } }
+      }
+      if (isMax) cand.push([v, t, r - ro]);
+    }
+  }
+  cand.sort((p, q) => q[0] - p[0]);
+  const lines = [], perBucket = new Uint8Array(18);
+  for (const [v, t, r] of cand) {
+    const bk = Math.floor(((t + 5) % NT) / 10);
+    if (perBucket[bk] >= 8) continue;   // keep orientation diversity (text lines must not crowd out edges)
+    let dup = false;
+    for (const L of lines) {
+      let dt = Math.abs(t - L.t), rr = r;
+      if (dt > NT / 2) { dt = NT - dt; rr = -r; }
+      if (dt <= 5 && Math.abs(rr - L.r) <= 8) { dup = true; break; }
+    }
+    if (dup) continue;
+    lines.push({ t, r, c: COS_T[t], s: SIN_T[t], v });
+    perBucket[bk]++;
+    if (lines.length >= K) break;
+  }
+  return lines;
+}
+
+function lineX(a, b) {
+  const d = a.c * b.s - a.s * b.c;
+  if (Math.abs(d) < 1e-6) return null;
+  return [(a.r * b.s - a.s * b.r) / d, (a.c * b.r - a.r * b.c) / d];
+}
+
+// Combine two roughly opposite line pairs into quads
+function houghCandidates(lines, w, h, limit) {
+  const out = [], pairs = [], minDim = Math.min(w, h), cx = w / 2, cy = h / 2;
+  const ang = (a, b) => { let d = Math.abs(a.t - b.t); if (d > NT / 2) d = NT - d; return d; };   // degrees, 0..90
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const a = lines[i], b = lines[j];
+      if (ang(a, b) > 40) continue;
+      const da = cx * a.c + cy * a.s - a.r;
+      let db = cx * b.c + cy * b.s - b.r;
+      if (a.c * b.c + a.s * b.s < 0) db = -db;
+      if (Math.abs(da - db) < 0.15 * minDim) continue;
+      const mt = Math.atan2(Math.sin(2 * a.t * Math.PI / NT) + Math.sin(2 * b.t * Math.PI / NT),
+                            Math.cos(2 * a.t * Math.PI / NT) + Math.cos(2 * b.t * Math.PI / NT)) / 2;
+      pairs.push({ a, b, mt });
+    }
+  }
+  const combos = [];
+  for (let i = 0; i < pairs.length; i++) {
+    for (let j = i + 1; j < pairs.length; j++) {
+      const P = pairs[i], Q = pairs[j];
+      let d = Math.abs(P.mt - Q.mt) * 180 / Math.PI; if (d > 90) d = 180 - d;
+      if (d < 30) continue;
+      if (P.a === Q.a || P.a === Q.b || P.b === Q.a || P.b === Q.b) continue;
+      combos.push([P.a.v + P.b.v + Q.a.v + Q.b.v, i, j]);
+    }
+  }
+  combos.sort((x, y) => y[0] - x[0]);   // strongest line sets first
+  for (let k = 0; k < combos.length && out.length < limit; k++) {
+    const P = pairs[combos[k][1]], Q = pairs[combos[k][2]];
+    const q = [lineX(P.a, Q.a), lineX(Q.a, P.b), lineX(P.b, Q.b), lineX(Q.b, P.a)];
+    if (q.some(p => !p || p[0] < -2 || p[1] < -2 || p[0] > w + 1 || p[1] > h + 1)) continue;
+    out.push(q);
+  }
+  return out;
+}
+
+// Inward unit normal of side P-Q (toward the quad centroid c)
+function inwardNormal(P, Q, c) {
+  const L = dist(P, Q) || 1;
+  let nx = -(Q[1] - P[1]) / L, ny = (Q[0] - P[0]) / L;
+  if ((c[0] - P[0]) * nx + (c[1] - P[1]) * ny < 0) { nx = -nx; ny = -ny; }
+  return [nx, ny];
+}
+
+// Fraction of a segment backed by thin edges with matching orientation AND polarity.
+// sgn = +1: inside brighter (gradient points inward), -1: inside darker.
+function sideSupport(P, Q, c, sgn, thin, gx, gy, mag, w, h, coarse) {
+  const L = dist(P, Q);
+  if (L < 1) return { f: 0, e: 0 };
+  const [nx, ny] = inwardNormal(P, Q, c);
+  const N = coarse ? 12 : Math.max(8, (L / 3) | 0);
+  let hit = 0, e = 0;
+  for (let k = 0; k < N; k++) {
+    const t = (k + 0.5) / N, x = P[0] + (Q[0] - P[0]) * t, y = P[1] + (Q[1] - P[1]) * t;
+    for (let o = -3; o <= 3; o++) {
+      const xi = Math.round(x + nx * o), yi = Math.round(y + ny * o);
+      if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+      const i = yi * w + xi;
+      if (!thin[i]) continue;
+      const g = Math.hypot(gx[i], gy[i]) || 1;
+      if (sgn * (gx[i] * nx + gy[i] * ny) / g > 0.87) { hit++; e += mag[i]; break; }
+    }
+  }
+  return { f: hit / N, e: e * L / N };
+}
+
+// Fast coarse score: 12 samples per side, both polarities in one pass, no allocations in the loop.
+// Returns score * sgn (positive: inside brighter, negative: inside darker), 0 if rejected.
+function coarseScore(q, thin, gx, gy, gn, mag, w, h) {
+  const area = polyArea(q);
+  if (area < 0.06 * w * h || area > 0.98 * w * h || !isConvex(q) || !anglesOk(q, 35, 145)) return 0;
+  const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
+  let posOK = true, negOK = true, posE = 0, negE = 0;
+  for (let s = 0; s < 4; s++) {
+    const P = q[s], Q = q[(s + 1) % 4];
+    const dx = Q[0] - P[0], dy = Q[1] - P[1], L = Math.hypot(dx, dy) || 1;
+    let nx = -dy / L, ny = dx / L;
+    if ((cx - P[0]) * nx + (cy - P[1]) * ny < 0) { nx = -nx; ny = -ny; }
+    let ph = 0, nh = 0, pe = 0, ne = 0;
+    for (let k = 0; k < 12; k++) {
+      // early exit: neither polarity can still reach 5 hits on this side
+      const left = 12 - k;
+      if ((!posOK || ph + left < 5) && (!negOK || nh + left < 5)) return 0;
+      const t = (k + 0.5) / 12, x = P[0] + dx * t, y = P[1] + dy * t;
+      let gotP = false, gotN = false;
+      for (let o = -2; o <= 2; o++) {
+        const xi = Math.round(x + nx * o), yi = Math.round(y + ny * o);
+        if (xi < 0 || yi < 0 || xi >= w || yi >= h) continue;
+        const i = yi * w + xi;
+        if (!thin[i]) continue;
+        const cs = (gx[i] * nx + gy[i] * ny) / gn[i];
+        if (!gotP && cs > 0.87) { gotP = true; ph++; pe += mag[i]; }
+        else if (!gotN && cs < -0.87) { gotN = true; nh++; ne += mag[i]; }
+        if (gotP && gotN) break;
+      }
+    }
+    if (ph < 5) posOK = false;   // 0.35 * 12 = 4.2
+    if (nh < 5) negOK = false;
+    if (!posOK && !negOK) return 0;
+    posE += pe * L / 12; negE += ne * L / 12;
+  }
+  const P = posOK ? posE : 0, N = negOK ? negE : 0;
+  return P >= N ? P : -N;
+}
+
+function quadCenter(q) { return [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4]; }
+
+// Score = edge energy along the perimeter for the better polarity; every side must be at least half supported
+function scoreQuad(q, thin, gx, gy, mag, w, h, coarse, onlySgn) {
+  const area = polyArea(q);
+  if (area < 0.06 * w * h || area > 0.98 * w * h || !isConvex(q) || !anglesOk(q, 35, 145)) return { score: 0 };
+  const c = quadCenter(q);
+  const minF = coarse ? 0.35 : 0.5;
+  let best = { score: 0 };
+  for (const sgn of (onlySgn ? [onlySgn] : [1, -1])) {
+    let score = 0;
+    for (let s = 0; s < 4; s++) {
+      const r = sideSupport(q[s], q[(s + 1) % 4], c, sgn, thin, gx, gy, mag, w, h, coarse);
+      if (r.f < minF) { score = 0; break; }
+      score += r.e;   // edge energy along the side: strong document borders beat faint texture lines
+    }
+    if (score > best.score) best = { score, sgn };
   }
   return best;
+}
+
+// Refit each side to the thin edge pixels near it (total least squares), then intersect
+function refineQuad(q, sgn, thin, gx, gy, w, h) {
+  const L = [], c = quadCenter(q);
+  for (let s = 0; s < 4; s++) {
+    const P = q[s], Q = q[(s + 1) % 4];
+    const len = dist(P, Q), ux = (Q[0] - P[0]) / len, uy = (Q[1] - P[1]) / len;
+    const [nx, ny] = inwardNormal(P, Q, c);
+    const x0 = Math.max(1, Math.floor(Math.min(P[0], Q[0]) - 4)), x1 = Math.min(w - 2, Math.ceil(Math.max(P[0], Q[0]) + 4));
+    const y0 = Math.max(1, Math.floor(Math.min(P[1], Q[1]) - 4)), y1 = Math.min(h - 2, Math.ceil(Math.max(P[1], Q[1]) + 4));
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * w + x;
+        if (!thin[i]) continue;
+        const dx = x - P[0], dy = y - P[1];
+        const t = (dx * ux + dy * uy) / len;
+        if (t < 0.08 || t > 0.92 || Math.abs(dx * nx + dy * ny) > 3) continue;
+        const g = Math.hypot(gx[i], gy[i]) || 1;
+        if (sgn * (gx[i] * nx + gy[i] * ny) / g < 0.9) continue;
+        n++; sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y;
+      }
+    }
+    if (n < 8) { L.push(null); continue; }
+    const mx = sx / n, my = sy / n;
+    const cxx = sxx / n - mx * mx, cxy = sxy / n - mx * my, cyy = syy / n - my * my;
+    const a = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+    L.push({ p: [mx, my], d: [Math.cos(a), Math.sin(a)] });
+  }
+  const out = [];
+  for (let s = 0; s < 4; s++) {
+    const A = L[(s + 3) % 4], B = L[s];
+    let p = null;
+    if (A && B) {
+      const den = A.d[0] * B.d[1] - A.d[1] * B.d[0];
+      if (Math.abs(den) > 1e-6) {
+        const t = ((B.p[0] - A.p[0]) * B.d[1] - (B.p[1] - A.p[1]) * B.d[0]) / den;
+        p = [A.p[0] + A.d[0] * t, A.p[1] + A.d[1] * t];
+      }
+    }
+    out.push(p && dist(p, q[s]) < 8 ? p : q[s]);
+  }
+  return isConvex(out) ? out : q;
+}
+
+// Full detection on a blurred grayscale frame. ws holds preallocated buffers.
+function detectQuad(blur, w, h, edgeMin, ws) {
+  const n = w * h;
+  sobelXY(blur, ws.gx, ws.gy, ws.mag, ws.gn, w, h);
+  const t = binarize(ws.mag, ws.bin, n, edgeMin, ws.hist);
+  dilate(ws.bin, ws.bin2, ws.tmp8, w, h);
+  nms(ws.mag, ws.gx, ws.gy, Math.min(t * 0.6, edgeMin * 0.8), ws.thin, w, h);
+  const cands = contourCandidates(ws.bin2, w, h, ws.labels, ws.stack);
+  const lines = houghLines(ws.thin, ws.gx, ws.gy, ws.mag, w, h, ws.acc, 40);
+  // Line-based candidates: evaluate only the strongest ones (sum of line votes) to bound the cost
+  for (const q of houghCandidates(lines, w, h, 1200)) cands.push(q);
+  // Coarse score (12 samples per side) for all, full score for the best 15
+  const scored = [];
+  for (const q of cands) {
+    const v = coarseScore(q, ws.thin, ws.gx, ws.gy, ws.gn, ws.mag, w, h);
+    if (v !== 0) scored.push({ q, cs: Math.abs(v), sgn: v > 0 ? 1 : -1 });
+  }
+  scored.sort((p, q) => q.cs - p.cs);
+  let best = null, bs = 0, bsg = 1;
+  for (let i = 0; i < Math.min(15, scored.length); i++) {
+    const r = scoreQuad(scored[i].q, ws.thin, ws.gx, ws.gy, ws.mag, w, h, false, scored[i].sgn);
+    if (r.score > bs) { bs = r.score; best = scored[i].q; bsg = r.sgn; }
+  }
+  if (!best) return null;
+  const r = refineQuad(best, bsg, ws.thin, ws.gx, ws.gy, w, h);
+  return { pts: orderQuad(r), score: bs, ncand: cands.length };
+}
+
+function allocBuffers(w, h) {
+  const n = w * h;
+  return {
+    gray: new Uint8Array(n), blur: new Uint8Array(n), tmp16: new Uint16Array(n),
+    gx: new Int16Array(n), gy: new Int16Array(n), mag: new Uint16Array(n), gn: new Float32Array(n),
+    bin: new Uint8Array(n), bin2: new Uint8Array(n), tmp8: new Uint8Array(n), thin: new Uint8Array(n),
+    labels: new Int32Array(n), stack: new Int32Array(n), hist: new Uint32Array(2048),
+    acc: new Float32Array(NT * (w + Math.ceil(Math.hypot(w, h)) + 2))
+  };
 }
 
 function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
@@ -427,19 +732,16 @@ const pctx = proc.getContext('2d', { willReadFrequently: true });
 
 let W = 0, H = 0, ws = null, vwPrev = 0, vhPrev = 0;
 const track = { q: null, hits: 0, miss: 0 };
-let fpsT = performance.now(), fpsN = 0, fps = 0;
+let fpsT = performance.now(), fpsN = 0, fps = 0, nextDetect = 0, detMs = 0, detN = 0, dps = 0;
 
 function alloc(vw, vh) {
   W = PROC_W; H = Math.round(PROC_W * vh / vw);
   proc.width = W; proc.height = H;
   debugCv.width = W; debugCv.height = H;
   const n = W * H;
-  ws = {
-    gray: new Uint8Array(n), blur: new Uint8Array(n), tmp16: new Uint16Array(n),
-    mag: new Uint16Array(n), bin: new Uint8Array(n), bin2: new Uint8Array(n), tmp8: new Uint8Array(n),
-    labels: new Int32Array(n), stack: new Int32Array(n), hist: new Uint32Array(2048),
-    dbg: new ImageData(W, H)
-  };
+  ws = allocBuffers(W, H);
+  ws.dbg = new ImageData(W, H);
+
 }
 
 function updateTrack(det) {
@@ -493,21 +795,25 @@ function loop() {
     const n = W * H, g = ws.gray;
     for (let i = 0, j = 0; i < n; i++, j += 4) g[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
     blur5(g, ws.blur, ws.tmp16, W, H);
-    sobel(ws.blur, ws.mag, W, H);
-    binarize(ws.mag, ws.bin, n, +$('edgeMin').value, ws.hist);
-    dilate(ws.bin, ws.bin2, ws.tmp8, W, H);
-    const det = findQuad(ws.bin2, W, H, ws.labels, ws.stack);
-    updateTrack(det);
+    const t0 = performance.now();
+    if (t0 >= nextDetect) {
+      const det = detectQuad(ws.blur, W, H, +$('edgeMin').value, ws);
+      updateTrack(det);
+      const dt = performance.now() - t0;
+      detMs = detMs * 0.8 + dt * 0.2;
+      nextDetect = performance.now() + dt;   // at most about 50% duty cycle, video and overlay stay smooth
+      detN++;
+    }
     drawOverlay();
     if ($('dbg').checked) {
       const d = ws.dbg.data;
-      for (let i = 0, j = 0; i < n; i++, j += 4) { const v = ws.bin2[i] ? 255 : 0; d[j] = d[j + 1] = d[j + 2] = v; d[j + 3] = 255; }
+      for (let i = 0, j = 0; i < n; i++, j += 4) { const v = ws.thin[i] ? 255 : (ws.bin2[i] ? 70 : 0); d[j] = d[j + 1] = d[j + 2] = v; d[j + 3] = 255; }
       dctx.putImageData(ws.dbg, 0, 0);
     }
     fpsN++;
     const now = performance.now();
-    if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now; }
-    statusEl.textContent = `${fps} fps | ${trackVisible() ? 'detected' : 'searching'}`;
+    if (now - fpsT > 1000) { fps = Math.round(fpsN * 1000 / (now - fpsT)); dps = Math.round(detN * 1000 / (now - fpsT)); fpsN = 0; detN = 0; fpsT = now; }
+    statusEl.textContent = `${fps} fps | detect ${dps}/s, ${Math.round(detMs)} ms | ${trackVisible() ? 'detected' : 'searching'}`;
   }
   requestAnimationFrame(loop);
 }
@@ -666,6 +972,34 @@ function paintOutput() {
     (cap.edited ? ' | corners edited' : '') + (curLabel ? ` | ${curLabel}` : '');
   $('grayBtn').classList.toggle('on', !!cap.gray);
   $('mmBtn').classList.toggle('on', !!cap.minmax);
+  prepareBlob();
+}
+
+// The share sheet must open synchronously inside the tap, so the image file is encoded ahead of time
+let blobToken = 0;
+function prepareBlob() {
+  const my = ++blobToken;
+  cap.blob = null;
+  $('save').disabled = true;
+  $('out').toBlob(b => {
+    if (my !== blobToken || !cap) return;
+    cap.blob = b;
+    $('save').disabled = false;
+  }, 'image/jpeg', 0.92);
+}
+
+const canShareFiles = (() => {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [new File([new Blob(['x'])], 't.jpg', { type: 'image/jpeg' })] })); }
+  catch (e) { return false; }
+})();
+$('save').textContent = canShareFiles ? 'Save to Photos' : 'Download';
+
+function downloadFile(file) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 function insetQuad(vw, vh, f) {
@@ -824,13 +1158,15 @@ $('shutter').onclick = capture;
 $('back').onclick = () => { $('result').style.display = 'none'; cap = null; };
 $('dbg').onchange = e => { debugCv.style.display = e.target.checked ? 'block' : 'none'; };
 $('save').onclick = () => {
-  $('out').toBlob(b => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(b);
-    a.download = 'scan_' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }, 'image/png');
+  if (!cap || !cap.blob) return;
+  const name = 'scan_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.jpg';
+  const file = new File([cap.blob], name, { type: 'image/jpeg' });
+  if (canShareFiles && navigator.canShare({ files: [file] })) {
+    // iOS: share sheet -> "Save Image" puts it in Photos. Android: pick Photos/Gallery or Files.
+    navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') downloadFile(file); });
+  } else {
+    downloadFile(file);
+  }
 };
 </script>
 </body>
