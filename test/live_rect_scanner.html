@@ -360,7 +360,7 @@ function nms(mag, gx, gy, t, thin, w, h) {
 const NT = 180, COS_T = new Float32Array(NT), SIN_T = new Float32Array(NT);
 for (let t = 0; t < NT; t++) { COS_T[t] = Math.cos(t * Math.PI / NT); SIN_T[t] = Math.sin(t * Math.PI / NT); }
 
-// Gradient-guided Hough transform: each edge pixel votes near its own normal angle, weighted by strength
+// Gradient-guided Hough transform: each edge pixel votes near its own normal angle, weighted by strength squared
 function houghLines(thin, gx, gy, mag, w, h, acc, K) {
   const ro = w, NR = acc.length / NT;
   acc.fill(0);
@@ -370,10 +370,11 @@ function houghLines(thin, gx, gy, mag, w, h, acc, K) {
       if (!thin[i]) continue;
       let th = Math.atan2(gy[i], gx[i]); if (th < 0) th += Math.PI;
       const tb = Math.round(th * NT / Math.PI) % NT;
+      const wv = mag[i] * mag[i];   // squared: short strong borders beat long faint texture lines
       for (let d = -2; d <= 2; d++) {
         const t = (tb + d + NT) % NT;
         const r = Math.round(x * COS_T[t] + y * SIN_T[t]) + ro;
-        if (r >= 0 && r < NR) acc[t * NR + r] += mag[i];
+        if (r >= 0 && r < NR) acc[t * NR + r] += wv;
       }
     }
   }
@@ -527,11 +528,11 @@ function coarseScore(q, thin, gx, gy, gn, mag, w, h) {
 function quadCenter(q) { return [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4]; }
 
 // Score = edge energy along the perimeter for the better polarity; every side must be at least half supported
-function scoreQuad(q, thin, gx, gy, mag, w, h, coarse, onlySgn) {
+function scoreQuad(q, thin, gx, gy, mag, w, h, coarse, onlySgn, minF0) {
   const area = polyArea(q);
   if (area < 0.06 * w * h || area > 0.98 * w * h || !isConvex(q) || !anglesOk(q, 35, 145)) return { score: 0 };
   const c = quadCenter(q);
-  const minF = coarse ? 0.35 : 0.5;
+  const minF = coarse ? 0.35 : (minF0 || 0.5);
   let best = { score: 0 };
   for (const sgn of (onlySgn ? [onlySgn] : [1, -1])) {
     let score = 0;
@@ -589,6 +590,80 @@ function refineQuad(q, sgn, thin, gx, gy, w, h) {
   return isConvex(out) ? out : q;
 }
 
+function otsu(hist, n) {
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sB = 0, wB = 0, best = 0, t = 128;
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i]; if (!wB) continue;
+    const wF = n - wB; if (!wF) break;
+    sB += i * hist[i];
+    const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > best) { best = v; t = i; }
+  }
+  return t;
+}
+
+function erode(src, dst, tmp, w, h) {
+  for (let y = 0; y < h; y++) { const r = y * w;
+    for (let x = 0; x < w; x++) tmp[r + x] = src[r + x] & (x > 0 ? src[r + x - 1] : 0) & (x < w - 1 ? src[r + x + 1] : 0); }
+  for (let y = 0; y < h; y++) { const r = y * w;
+    for (let x = 0; x < w; x++) dst[r + x] = tmp[r + x] & (y > 0 ? tmp[r + x - w] : 0) & (y < h - 1 ? tmp[r + x + w] : 0); }
+}
+
+// Quad candidates from brightness blobs: Otsu split, then both the bright and the dark class
+// (white or pastel paper on a darker desk, or a dark card on a light desk). Opening removes thin bits.
+function regionCandidates(blur, ws, w, h) {
+  const n = w * h, hist = new Uint32Array(256);
+  for (let i = 0; i < n; i++) hist[blur[i]]++;
+  const t = otsu(hist, n);
+  const m = ws.mask, m2 = ws.mask2, out = [];
+  for (const bright of [true, false]) {
+    for (let i = 0; i < n; i++) m[i] = (blur[i] > t) === bright ? 1 : 0;
+    dilate(m, m2, ws.tmp8, w, h); dilate(m2, m, ws.tmp8, w, h);   // closing: fill text holes and lines
+    erode(m, m2, ws.tmp8, w, h); erode(m2, m, ws.tmp8, w, h);
+    erode(m, m2, ws.tmp8, w, h); erode(m2, m, ws.tmp8, w, h);     // opening: drop thin bits, cut weak bridges
+    dilate(m, m2, ws.tmp8, w, h); dilate(m2, m, ws.tmp8, w, h);
+    for (const q of contourCandidates(m, w, h, ws.labels, ws.stack)) out.push({ q, sgn: bright ? 1 : -1 });
+  }
+  return out;
+}
+
+function inQuad(q, x, y) {
+  let sg = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    const c = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
+    if (c !== 0) { const s = c > 0 ? 1 : -1; if (sg === 0) sg = s; else if (s !== sg) return false; }
+  }
+  return true;
+}
+
+// Local contrast across each side: mean brightness 4-8 px inside minus 4-8 px outside.
+// A real border separates object from background; a text line just inside the paper has paper on both sides.
+// Returns the weakest side (times sgn later), so all four sides must separate.
+function sideContrast(q, blur, w, h) {
+  const c = quadCenter(q);
+  let weakest = Infinity, weakestNeg = Infinity;
+  for (let s = 0; s < 4; s++) {
+    const P = q[s], Q = q[(s + 1) % 4];
+    const [nx, ny] = inwardNormal(P, Q, c);
+    let si = 0, ni = 0, so = 0, no = 0;
+    for (let k = 0; k < 20; k++) {
+      const t = 0.1 + 0.8 * k / 19, x = P[0] + (Q[0] - P[0]) * t, y = P[1] + (Q[1] - P[1]) * t;
+      for (const d of [4, 6, 8]) {
+        const xi = Math.round(x + nx * d), yi = Math.round(y + ny * d);
+        if (xi >= 0 && yi >= 0 && xi < w && yi < h) { si += blur[yi * w + xi]; ni++; }
+        const xo = Math.round(x - nx * d), yo = Math.round(y - ny * d);
+        if (xo >= 0 && yo >= 0 && xo < w && yo < h) { so += blur[yo * w + xo]; no++; }
+      }
+    }
+    if (!ni || no < 6) continue;   // side runs along the frame edge: no outside to compare
+    const d = si / ni - so / no;
+    weakest = Math.min(weakest, d); weakestNeg = Math.min(weakestNeg, -d);
+  }
+  return { pos: weakest === Infinity ? 0 : weakest, neg: weakestNeg === Infinity ? 0 : weakestNeg };
+}
+
 // Full detection on a blurred grayscale frame. ws holds preallocated buffers.
 function detectQuad(blur, w, h, edgeMin, ws) {
   const n = w * h;
@@ -600,6 +675,8 @@ function detectQuad(blur, w, h, edgeMin, ws) {
   const lines = houghLines(ws.thin, ws.gx, ws.gy, ws.mag, w, h, ws.acc, 40);
   // Line-based candidates: evaluate only the strongest ones (sum of line votes) to bound the cost
   for (const q of houghCandidates(lines, w, h, 1200)) cands.push(q);
+  const nEdgeCands = cands.length;
+  const regionC = regionCandidates(blur, ws, w, h);
   // Coarse score (12 samples per side) for all, full score for the best 15
   const scored = [];
   for (const q of cands) {
@@ -607,10 +684,31 @@ function detectQuad(blur, w, h, edgeMin, ws) {
     if (v !== 0) scored.push({ q, cs: Math.abs(v), sgn: v > 0 ? 1 : -1 });
   }
   scored.sort((p, q) => q.cs - p.cs);
+  // Side contrast is cheap: apply it to the top 150 coarse candidates before choosing the finalists
+  const regionK = (q, sgn) => {
+    const c2 = sideContrast(q, blur, w, h);
+    const dc = sgn > 0 ? c2.pos : c2.neg;
+    if (dc < 12) return 0;          // no real separation from the background: not a document border
+    const k = dc / 25;
+    return k * k;                   // squared and uncapped: the best separating quad wins
+  };
+  const pre = [];
+  for (let i = 0; i < Math.min(150, scored.length); i++) {
+    const k = regionK(scored[i].q, scored[i].sgn);
+    if (k > 0) pre.push({ q: scored[i].q, sgn: scored[i].sgn, minF: 0.5, rank: scored[i].cs * k });
+  }
+  pre.sort((p, q) => q.rank - p.rank);
+  const finalists = pre.slice(0, 30);
+  // Region candidates always reach the final round; weaker edges are accepted when the region is clearly separated
+  for (const o of regionC) finalists.push({ q: o.q, sgn: o.sgn, minF: 0.3 });
   let best = null, bs = 0, bsg = 1;
-  for (let i = 0; i < Math.min(15, scored.length); i++) {
-    const r = scoreQuad(scored[i].q, ws.thin, ws.gx, ws.gy, ws.mag, w, h, false, scored[i].sgn);
-    if (r.score > bs) { bs = r.score; best = scored[i].q; bsg = r.sgn; }
+  for (const o of finalists) {
+    const r = scoreQuad(o.q, ws.thin, ws.gx, ws.gy, ws.mag, w, h, false, o.sgn, o.minF);
+    if (!r.score) continue;
+    const k = regionK(o.q, r.sgn);
+    if (!k || (o.minF < 0.5 && k < 1.44)) continue;   // region-only candidates need contrast >= 30
+    const total = r.score * k;
+    if (total > bs) { bs = total; best = o.q; bsg = r.sgn; }
   }
   if (!best) return null;
   const r = refineQuad(best, bsg, ws.thin, ws.gx, ws.gy, w, h);
@@ -624,7 +722,8 @@ function allocBuffers(w, h) {
     gx: new Int16Array(n), gy: new Int16Array(n), mag: new Uint16Array(n), gn: new Float32Array(n),
     bin: new Uint8Array(n), bin2: new Uint8Array(n), tmp8: new Uint8Array(n), thin: new Uint8Array(n),
     labels: new Int32Array(n), stack: new Int32Array(n), hist: new Uint32Array(2048),
-    acc: new Float32Array(NT * (w + Math.ceil(Math.hypot(w, h)) + 2))
+    acc: new Float32Array(NT * (w + Math.ceil(Math.hypot(w, h)) + 2)),
+    mask: new Uint8Array(n), mask2: new Uint8Array(n)
   };
 }
 
